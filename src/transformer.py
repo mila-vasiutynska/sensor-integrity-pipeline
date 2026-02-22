@@ -5,22 +5,23 @@ from typing import Tuple
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 
+from src.const import (
+    COL_USER,
+    COL_EMAIL,
+    COL_SERIAL_NUMBER,
+    COL_EVENT_TS,
+    COL_SENSOR_TS,
+    COL_CONSENT_TS,
+    COL_ACCEL_TS_RAW,
+    COL_STEP_TIME_RAW,
+    COL_DISTANCE,
+    X, Y, Z,
+)
+
 
 def parse_customers(customers_df: DataFrame) -> DataFrame:
     """
-    Parse/normalize customer fields into strongly-typed columns.
-
-    Adds:
-        - birthDay_date: date
-        - registration_ts: timestamp (from epoch seconds)
-        - last_update_ts: timestamp (from epoch seconds)
-        - consent_ts: timestamp (from shareWithResearchAsOfDate epoch seconds)
-
-    Args:
-        customers_df: Raw customers DataFrame (schema already applied in loader).
-
-    Returns:
-        Normalized customers DataFrame.
+    Normalize customer fields and derive consent_ts as Spark timestamp.
     """
     return (
         customers_df
@@ -28,89 +29,82 @@ def parse_customers(customers_df: DataFrame) -> DataFrame:
         .withColumn("registration_ts", F.to_timestamp(F.from_unixtime(F.col("registrationDate"))))
         .withColumn("last_update_ts", F.to_timestamp(F.from_unixtime(F.col("lastUpdateDate"))))
         .withColumn(
-            "consent_ts",
-            F.when(F.col("shareWithResearchAsOfDate").isNotNull(),
-                   F.to_timestamp(F.from_unixtime(F.col("shareWithResearchAsOfDate"))))
-             .otherwise(F.lit(None).cast("timestamp"))
+            COL_CONSENT_TS,
+            F.when(
+                F.col("shareWithResearchAsOfDate").isNotNull(),
+                F.to_timestamp(F.from_unixtime(F.col("shareWithResearchAsOfDate")))
+            ).otherwise(F.lit(None).cast("timestamp"))
         )
     )
 
 
 def parse_accelerometer(accel_df: DataFrame) -> DataFrame:
     """
-    Parse accelerometer timestamps into a timestamp column used for joins/validation.
-
-    Adds:
-        - event_ts: timestamp (from epoch seconds)
-
-    Args:
-        accel_df: Raw accelerometer DataFrame.
-
-    Returns:
-        Parsed accelerometer DataFrame with event_ts.
+    Adds event_ts as Spark timestamp from epoch seconds.
     """
-    return accel_df.withColumn("event_ts", F.to_timestamp(F.from_unixtime(F.col("timestamp"))))
+    return accel_df.withColumn(
+        COL_EVENT_TS,
+        F.to_timestamp(F.from_unixtime(F.col(COL_ACCEL_TS_RAW)))
+    )
 
 
 def parse_step_trainer(step_df: DataFrame) -> DataFrame:
     """
-    Parse step trainer sensorReadingTime into a proper timestamp.
-
-    Notes:
-        In your synthetic generator, sensorReadingTime is written as ISO-8601 string.
-        This function converts it to Spark timestamp.
-
-    Adds:
-        - sensor_ts: timestamp
-
-    Args:
-        step_df: Raw step trainer DataFrame.
-
-    Returns:
-        Parsed step trainer DataFrame with sensor_ts.
+    Adds sensor_ts as Spark timestamp from ISO string.
     """
-    return step_df.withColumn("sensor_ts", F.to_timestamp(F.col("sensorReadingTime")))
+    return step_df.withColumn(COL_SENSOR_TS, F.to_timestamp(F.col(COL_STEP_TIME_RAW)))
 
 
 def build_curated_dataset(
     validated_accel_df: DataFrame,
+    customers_df: DataFrame,
     step_df: DataFrame,
 ) -> DataFrame:
     """
-    Build a curated dataset by joining validated accelerometer events with step trainer readings.
+    Build curated dataset.
 
-    Join strategy:
-        - Inner join on (serialNumber, event_ts == sensor_ts)
-
-    Rationale:
-        This keeps only events that have both accelerometer readings and step trainer readings
-        aligned in time. In a real system, you might use window joins (tolerance) instead.
-
-    Args:
-        validated_accel_df: Accelerometer events that passed validation and consent checks.
-        step_df: Parsed step trainer readings (contains sensor_ts).
-
-    Returns:
-        Curated DataFrame suitable for downstream analytics/ML feature engineering.
+    New (realistic) join path:
+      1) Map accelerometer (phone) events to customer using user(email):
+           accel.user == customers.email
+         to get the step trainer device serialNumber.
+      2) Join to step trainer readings on:
+           serialNumber AND event_ts == sensor_ts
     """
-    joined = validated_accel_df.join(
-        step_df.select("serialNumber", "sensor_ts", "distanceFromObject"),
-        (validated_accel_df["serialNumber"] == step_df["serialNumber"]) &
-        (validated_accel_df["event_ts"] == step_df["sensor_ts"]),
+
+    # 1) Map phone accelerometer events -> device serialNumber via customer
+    accel_with_customer = validated_accel_df.join(
+    customers_df.select(
+        COL_EMAIL,
+        COL_SERIAL_NUMBER,
+        "customerName",
+        "birthDay_date",
+    ),
+    validated_accel_df[COL_USER] == customers_df[COL_EMAIL],
+    how="inner",
+    )
+
+    # 2) Join to step trainer on device serial + aligned time
+    joined = accel_with_customer.join(
+        step_df.select(COL_SERIAL_NUMBER, COL_SENSOR_TS, COL_DISTANCE),
+        (accel_with_customer[COL_SERIAL_NUMBER] == step_df[COL_SERIAL_NUMBER]) &
+        (accel_with_customer[COL_EVENT_TS] == step_df[COL_SENSOR_TS]),
         how="inner",
     )
 
     return (
         joined
-        .drop(step_df["serialNumber"])
-        .drop(step_df["sensor_ts"])
+        .drop(step_df[COL_SERIAL_NUMBER])
+        .drop(step_df[COL_SENSOR_TS])
         .select(
-            "serialNumber",
-            "event_ts",
-            "x", "y", "z",
-            "distanceFromObject",
+            COL_EMAIL,
+            "customerName",
+            "birthDay_date",
+            COL_SERIAL_NUMBER,
+            COL_EVENT_TS,
+            X, Y, Z,
+            COL_DISTANCE,
         )
-        .orderBy("serialNumber", "event_ts")
+        .orderBy(COL_SERIAL_NUMBER, COL_EVENT_TS)
     )
 
 
@@ -120,15 +114,7 @@ def prepare_all(
     step_df: DataFrame,
 ) -> Tuple[DataFrame, DataFrame, DataFrame]:
     """
-    Convenience function to parse/normalize all three input datasets.
-
-    Args:
-        customers_df: Raw customers DataFrame.
-        accel_df: Raw accelerometer DataFrame.
-        step_df: Raw step trainer DataFrame.
-
-    Returns:
-        (customers_parsed, accel_parsed, step_parsed)
+    Function to parse/normalize all three input datasets.
     """
     return (
         parse_customers(customers_df),

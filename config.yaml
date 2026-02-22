@@ -1,0 +1,17 @@
+app:
+  name: sensor-integrity-pipeline
+
+paths:
+  input_base: data/sample
+  output_base: out
+
+validation:
+  axis_min_g: -5.0
+  axis_max_g: 5.0
+  dedupe_keys: ["user", "event_ts"]
+
+consent:
+  enabled: true
+
+join:
+  mode: exact   # exact | (future: window)

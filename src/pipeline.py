@@ -1,6 +1,3 @@
-# src/pipeline.py
-from __future__ import annotations
-
 import os
 from typing import Dict
 
@@ -16,14 +13,10 @@ except ImportError:
     from transformer import prepare_all, build_curated_dataset
     from validator import validate_accelerometer_dataset
 
+from src.config import load_config
+
 
 def ensure_dir(path: str) -> None:
-    """
-    Ensure a directory exists.
-
-    Args:
-        path: Directory path.
-    """
     os.makedirs(path, exist_ok=True)
 
 
@@ -40,32 +33,44 @@ def write_parquet(df: DataFrame, path: str, mode: str = "overwrite") -> None:
 
 
 def run_pipeline(
-    input_base: str = "data/sample",
-    output_base: str = "out",
+    input_base: str | None = None,
+    output_base: str | None = None,
 ) -> Dict[str, int]:
     """
-    Run the end-to-end local Spark pipeline:
+    Run the end-to-end local Spark pipeline.
 
-        1) Load JSONL inputs using strict schemas
-        2) Parse/normalize timestamps and dates
-        3) Validate accelerometer dataset (nulls, range, dedupe, consent-by-time)
-        4) Join validated accelerometer with step trainer readings
-        5) Write outputs to Parquet for inspection
-
-    Args:
-        input_base: Base folder containing customers.json, accelerometer.json, step_trainer.json.
-        output_base: Base output folder.
-
-    Returns:
-        A small dict of headline metrics (counts) to print or assert in CI.
+    Steps:
+      1) Load JSONL inputs using strict schemas
+      2) Parse/normalize timestamps and dates
+      3) Validate accelerometer dataset (nulls, range, dedupe, consent-by-time)
+      4) Build curated dataset (map phone->customer->device, then join to step trainer)
+      5) Write outputs to Parquet for inspection
     """
-    spark = get_spark(app_name="sensor-integrity-pipeline")
+    cfg = load_config()
+
+    # Allow CLI/other callers to override config, but default to config.yaml
+    input_base = input_base or cfg.paths.input_base
+    output_base = output_base or cfg.paths.output_base
+
+    spark = get_spark(app_name=cfg.name)
 
     customers_raw, accel_raw, step_raw = load_all(spark, base_path=input_base)
     customers, accel, step = prepare_all(customers_raw, accel_raw, step_raw)
 
-    accel_validated, summary = validate_accelerometer_dataset(accel, customers)
-    curated = build_curated_dataset(accel_validated, step)
+    accel_validated, summary = validate_accelerometer_dataset(
+        accel_df=accel,
+        customers_df=customers,
+        axis_min_g=cfg.validation.axis_min_g,
+        axis_max_g=cfg.validation.axis_max_g,
+    )
+
+    # IMPORTANT: curated now needs customers_df because accel is keyed by user(email),
+    # and we map to step trainer device serialNumber via customers.
+    curated = build_curated_dataset(
+        validated_accel_df=accel_validated,
+        customers_df=customers,
+        step_df=step,
+    )
 
     ensure_dir(output_base)
     write_parquet(customers, f"{output_base}/customers_parsed")

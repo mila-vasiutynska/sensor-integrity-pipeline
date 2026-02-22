@@ -7,8 +7,15 @@ A small, **locally runnable** PySpark pipeline for synthetic generated regulated
 - validation (nulls, ranges, duplicates)
 - curated dataset build (join sensor + device readings)
 
-This repo is designed to be **easy to review and run locally** (no AWS / Glue notebooks required).
+The project is inspired by an earlier cloud-based ETL implementation:
+https://github.com/mila-vasiutynska/glue-spark-data-lakes
 
+In this version, the focus is on:
+- realistic data modeling
+- consent enforcement
+- validation strategy
+
+clean, testable local execution
 ---
 
 ## What to look at first (review path)
@@ -97,7 +104,12 @@ Dropped rows: 58
 - pre_consent_rows: 51
 
 === Headline Metrics ===
-customers: 25
-accelerometer_raw: 301
-accelerometer_validated: 243
-curated: 243
+- customers: 25
+- accelerometer_raw: 301
+- accelerometer_validated: 243
+- curated: 243
+
+## Inspect output
+
+```bash
+python3 src/inspect_parquet.py

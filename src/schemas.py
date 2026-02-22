@@ -6,8 +6,8 @@ CUSTOMERS_SCHEMA = StructType([
     StructField("customerName", StringType(), False),
     StructField("email", StringType(), False),
     StructField("phone", StringType(), True),
-    StructField("birthDay", StringType(), True),  # parse to date later
-    StructField("serialNumber", StringType(), False),
+    StructField("birthDay", StringType(), True),  # parsed later to date
+    StructField("serialNumber", StringType(), False),  # Step Trainer device ID
     StructField("registrationDate", LongType(), False),
     StructField("lastUpdateDate", LongType(), False),
     StructField("shareWithResearchAsOfDate", LongType(), True),
@@ -15,8 +15,9 @@ CUSTOMERS_SCHEMA = StructType([
     StructField("shareWithFriendsAsOfDate", LongType(), True),
 ])
 
+
 ACCEL_SCHEMA = StructType([
-    StructField("serialNumber", StringType(), False),
+    StructField("user", StringType(), False),  # email of the phone owner
     StructField("timestamp", LongType(), False),  # epoch seconds
     StructField("x", DoubleType(), True),
     StructField("y", DoubleType(), True),
@@ -25,6 +26,6 @@ ACCEL_SCHEMA = StructType([
 
 STEP_TRAINER_SCHEMA = StructType([
     StructField("sensorReadingTime", StringType(), False),  # ISO string -> timestamp later
-    StructField("serialNumber", StringType(), False),
+    StructField("serialNumber", StringType(), False),  # device ID
     StructField("distanceFromObject", IntegerType(), True),
 ])
