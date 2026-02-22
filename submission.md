@@ -75,3 +75,10 @@ In a regulated medical environment, I would extend this with:
 - Schema versioning
 - Data lineage tracking
 - Monitoring and alerting
+- Access control and audit logs (who accessed or changed data)
+- Data encryption and masking for sensitive information
+- Clear data quality rules and automatic checks
+- Ability to reprocess data safely if something fails
+- Documentation for audits and compliance
+
+This would make the pipeline secure, easy to track, reliable, and aligned with medical regulations.
