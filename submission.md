@@ -16,10 +16,11 @@ The pipeline:
 I intentionally introduced realistic issues (nulls, outliers, duplicates, consent timing) to ensure the system handles imperfect data.
 
 ## Assumption About Device Placement
+
 In this project, I assumed the step trainer device is worn on the lower leg or ankle and measures distance to the ground.
 Because of that, the distance does not go to zero. It changes around a baseline value as the person walks.
 In a real medical device, the exact placement of the sensor would affect how the signal looks and how features are engineered. I kept the model simple, but this is something I would consider carefully in a real system.
----
+
 
 ## Technical Challenge 1: Time-Based Consent
 
