@@ -3,6 +3,8 @@
 ## Project Overview
 
 This project is a local PySpark pipeline that processes customer, phone accelerometer, and step trainer device data to produce a clean dataset for analytics or future machine learning.
+The project is inspired by an earlier cloud-based ETL implementation:
+https://github.com/mila-vasiutynska/glue-spark-data-lakes
 
 The pipeline:
 
